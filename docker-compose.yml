@@ -59,5 +59,32 @@ services:
       timeout: 5s
       retries: 5
 
+  dispatcher:
+    build: *app-build
+    environment:
+      <<: *app-env
+      DISPATCHER_ID: dispatcher-1
+    volumes:
+      - .:/srv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "app.scheduler"]
+
+  outbox-publisher:
+    build: *app-build
+    environment:
+      <<: *app-env
+    volumes:
+      - .:/srv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "app.publisher"]
+
 volumes:
   postgres-data:

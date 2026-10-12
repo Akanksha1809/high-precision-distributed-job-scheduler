@@ -37,8 +37,10 @@ class Settings(BaseSettings):
     dispatcher_id: str = "dispatcher-1"
 
     # --- Outbox publisher ---
-    outbox_batch_size: int = 200
+    outbox_batch_size: int = 10  # SQS send_message_batch caps at 10 messages/call
     outbox_poll_interval_ms: int = 100
+    outbox_publisher_concurrency: int = 4
+    outbox_max_publish_attempts: int = 10
 
     # --- Worker ---
     worker_id: str = "worker-1"
