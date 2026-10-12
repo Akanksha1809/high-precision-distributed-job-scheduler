@@ -1,9 +1,11 @@
 import asyncio
 
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.config.settings import Settings
+from app.observability.db_metrics import sample_pool_metrics
 from app.observability.logging import get_logger
+from app.observability.metrics import db_query_errors_total, queue_backlog
 from app.queue.base import Queue
 from app.reconciliation.sweep import (
     recover_abandoned_running,
@@ -15,12 +17,25 @@ logger = get_logger(component="reconciliation")
 
 
 class ReconciliationService:
-    def __init__(self, session_factory: async_sessionmaker, dlq: Queue, settings: Settings):
+    def __init__(
+        self,
+        session_factory: async_sessionmaker,
+        dlq: Queue,
+        settings: Settings,
+        engine: AsyncEngine,
+    ):
         self._session_factory = session_factory
         self._dlq = dlq
         self._settings = settings
+        self._engine = engine
 
     async def _sweep_once(self) -> None:
+        sample_pool_metrics(self._engine, service="reconciliation")
+        try:
+            queue_backlog.labels(queue="dlq").set(await self._dlq.approximate_size())
+        except Exception:
+            pass  # best-effort observability only; never let this break the sweep
+
         async with self._session_factory() as session:
             n = await recover_stale_dispatch_pending(
                 session,
@@ -56,5 +71,6 @@ class ReconciliationService:
                 await self._sweep_once()
             except Exception:
                 logger.error("reconciliation_sweep_error", exc_info=True)
+                db_query_errors_total.labels(service="reconciliation").inc()
             await asyncio.sleep(self._settings.reconciliation_interval_seconds)
         logger.info("reconciliation_stopped")

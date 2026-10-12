@@ -1,9 +1,11 @@
 import asyncio
 
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from app.config.settings import Settings
+from app.observability.db_metrics import sample_pool_metrics
 from app.observability.logging import get_logger
+from app.observability.metrics import db_query_errors_total, queue_backlog
 from app.queue.base import Queue
 from app.workers.executor import process_message
 
@@ -23,11 +25,13 @@ class Worker:
         main_queue: Queue,
         dlq_queue: Queue,
         settings: Settings,
+        engine: AsyncEngine,
     ):
         self._session_factory = session_factory
         self._main_queue = main_queue
         self._dlq_queue = dlq_queue
         self._settings = settings
+        self._engine = engine
         self._semaphore = asyncio.Semaphore(settings.worker_concurrency)
         self._in_flight: set[asyncio.Task] = set()
 
@@ -44,6 +48,7 @@ class Worker:
                 )
             except Exception:
                 logger.error("message_processing_error", exc_info=True)
+                db_query_errors_total.labels(service="worker").inc()
 
     async def run_forever(self, stop_event: asyncio.Event | None = None) -> None:
         stop_event = stop_event or asyncio.Event()
@@ -52,6 +57,7 @@ class Worker:
             worker_id=self._settings.worker_id,
             concurrency=self._settings.worker_concurrency,
         )
+        poll_count = 0
         try:
             while not stop_event.is_set():
                 # Only pull as many new messages as we have free concurrency slots,
@@ -62,6 +68,16 @@ class Worker:
                     await asyncio.sleep(0.05)
                     self._in_flight = {t for t in self._in_flight if not t.done()}
                     continue
+
+                poll_count += 1
+                if poll_count % 20 == 0:  # don't sample on every poll — cheap but unnecessary
+                    sample_pool_metrics(self._engine, service="worker")
+                    try:
+                        queue_backlog.labels(queue="main").set(
+                            await self._main_queue.approximate_size()
+                        )
+                    except Exception:
+                        pass  # best-effort observability only
 
                 messages = await self._main_queue.receive(
                     max_messages=min(free_slots, self._settings.sqs_max_messages_per_poll),

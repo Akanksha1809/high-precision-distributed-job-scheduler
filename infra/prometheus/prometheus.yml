@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+# No per-target "service" label here on purpose: our own metrics (db_pool_size,
+# queue_backlog, db_query_errors_total) already carry a `service` label from the
+# application itself. A same-named static target label would collide and get
+# silently renamed to `exported_service` by Prometheus, which is confusing to
+# debug — the `job` label already identifies which container a scrape came from.
+scrape_configs:
+  - job_name: chronos-api
+    static_configs:
+      - targets: ["api:8000"]
+
+  - job_name: chronos-dispatcher
+    static_configs:
+      - targets: ["dispatcher:9100"]
+
+  - job_name: chronos-outbox-publisher
+    static_configs:
+      - targets: ["outbox-publisher:9100"]
+
+  - job_name: chronos-worker
+    static_configs:
+      - targets: ["worker:9100"]
+
+  - job_name: chronos-reconciliation
+    static_configs:
+      - targets: ["reconciliation:9100"]

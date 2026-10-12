@@ -133,3 +133,18 @@ outbox_oldest_pending_age_seconds = Gauge(
 queue_backlog = Gauge(
     "chronos_queue_backlog", "Approximate number of messages on a queue", labelnames=("queue",)
 )
+
+# --- Database ---
+db_pool_size = Gauge(
+    "chronos_db_pool_size", "Configured size of this process's DB connection pool", labelnames=("service",)
+)
+db_pool_checked_out = Gauge(
+    "chronos_db_pool_checked_out",
+    "Connections currently checked out of the pool (in use)",
+    labelnames=("service",),
+)
+db_query_errors_total = Counter(
+    "chronos_db_query_errors_total",
+    "Exceptions raised out of a DB-touching unit of work (claim/publish/execute/sweep)",
+    labelnames=("service",),
+)

@@ -1,0 +1,147 @@
+{
+  "title": "Chronos Overview",
+  "uid": "chronos-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Job outcomes (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "sum(rate(chronos_jobs_created_total[1m]))", "legendFormat": "created" },
+        { "expr": "sum(rate(chronos_jobs_succeeded_total[1m]))", "legendFormat": "succeeded" },
+        { "expr": "sum(rate(chronos_jobs_failed_permanent_total[1m]))", "legendFormat": "failed_permanent" },
+        { "expr": "sum(rate(chronos_jobs_retried_total[1m]))", "legendFormat": "retried" },
+        { "expr": "sum(rate(chronos_jobs_dead_lettered_total[1m]))", "legendFormat": "dead_lettered" },
+        { "expr": "sum(rate(chronos_jobs_cancelled_total[1m]))", "legendFormat": "cancelled" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "title": "Dispatch lag (scheduled_at -> claimed)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(chronos_dispatcher_dispatch_lag_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(chronos_dispatcher_dispatch_lag_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(chronos_dispatcher_dispatch_lag_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "title": "Outbox backlog",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "chronos_outbox_backlog", "legendFormat": "pending rows" }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "title": "Oldest pending outbox row",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "chronos_outbox_oldest_pending_age_seconds", "legendFormat": "age" }],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Queue backlog",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "chronos_queue_backlog", "legendFormat": "{{queue}}" }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "Worker active tasks",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [{ "expr": "sum(chronos_worker_active_tasks)", "legendFormat": "active" }],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "title": "Reconciliation recoveries (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "sum(rate(chronos_reconciliation_recovered_total[5m])) by (reason)", "legendFormat": "{{reason}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "title": "Task execution duration",
+      "type": "timeseries",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(chronos_task_execution_duration_seconds_bucket[5m])) by (le, task_type))", "legendFormat": "p50 {{task_type}}" },
+        { "expr": "histogram_quantile(0.95, sum(rate(chronos_task_execution_duration_seconds_bucket[5m])) by (le, task_type))", "legendFormat": "p95 {{task_type}}" },
+        { "expr": "histogram_quantile(0.99, sum(rate(chronos_task_execution_duration_seconds_bucket[5m])) by (le, task_type))", "legendFormat": "p99 {{task_type}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "title": "HTTP request rate by status code",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "sum(rate(chronos_http_requests_total[1m])) by (status_code)", "legendFormat": "{{status_code}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "title": "HTTP request latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(chronos_http_request_duration_seconds_bucket[5m])) by (le, path))", "legendFormat": "p50 {{path}}" },
+        { "expr": "histogram_quantile(0.95, sum(rate(chronos_http_request_duration_seconds_bucket[5m])) by (le, path))", "legendFormat": "p95 {{path}}" },
+        { "expr": "histogram_quantile(0.99, sum(rate(chronos_http_request_duration_seconds_bucket[5m])) by (le, path))", "legendFormat": "p99 {{path}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "title": "DB pool: checked-out vs size",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "chronos_db_pool_checked_out", "legendFormat": "{{service}} checked_out" },
+        { "expr": "chronos_db_pool_size", "legendFormat": "{{service}} pool_size" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 12,
+      "title": "DB query errors (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "sum(rate(chronos_db_query_errors_total[5m])) by (service)", "legendFormat": "{{service}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    }
+  ]
+}

@@ -2,8 +2,9 @@ import asyncio
 import signal
 
 from app.config.settings import get_settings
-from app.db.session import dispose_engine, get_sessionmaker
+from app.db.session import dispose_engine, get_engine, get_sessionmaker
 from app.observability.logging import configure_logging, get_logger
+from app.observability.metrics_server import start_metrics_server
 from app.queue.factory import build_queue
 from app.workers.service import Worker
 
@@ -13,6 +14,7 @@ logger = get_logger(component="worker")
 async def main() -> None:
     settings = get_settings()
     configure_logging(settings)
+    start_metrics_server(settings.metrics_port)
 
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -21,7 +23,7 @@ async def main() -> None:
 
     main_queue = build_queue(settings, name="main")
     dlq_queue = build_queue(settings, name="dlq")
-    worker = Worker(get_sessionmaker(), main_queue, dlq_queue, settings)
+    worker = Worker(get_sessionmaker(), main_queue, dlq_queue, settings, get_engine())
     try:
         await worker.run_forever(stop_event)
     finally:

@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from uuid import UUID
 
+import structlog
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config.settings import Settings
@@ -58,6 +59,38 @@ async def process_message(
         stale_messages_discarded_total.labels(reason="malformed").inc()
         return
 
+    # Bound for the rest of this message's processing so every log line emitted by
+    # claim_for_execution/finalize_*/handlers below carries the same job_id/attempt
+    # without having to pass them through every function signature explicitly.
+    structlog.contextvars.bind_contextvars(job_id=str(job_id), attempt_number=attempt_number)
+    try:
+        await _process_claimed_message(
+            msg,
+            job_id=job_id,
+            attempt_number=attempt_number,
+            scheduled_at=scheduled_at,
+            session_factory=session_factory,
+            main_queue=main_queue,
+            dlq_queue=dlq_queue,
+            settings=settings,
+            worker_id=worker_id,
+        )
+    finally:
+        structlog.contextvars.clear_contextvars()
+
+
+async def _process_claimed_message(
+    msg: ReceivedMessage,
+    *,
+    job_id: UUID,
+    attempt_number: int,
+    scheduled_at: datetime,
+    session_factory: async_sessionmaker,
+    main_queue: Queue,
+    dlq_queue: Queue,
+    settings: Settings,
+    worker_id: str,
+) -> None:
     now = datetime.now(timezone.utc)
     if now < scheduled_at:
         # Arrived early (the dispatcher works within a horizon well before the exact

@@ -16,9 +16,9 @@
       without them — reconciliation and leases/heartbeats remain for M5.
 - [x] M5 — Reconciliation service (recover stuck DISPATCH_PENDING/RUNNING jobs via
       lease_expires_at), real crash-recovery tests, outbox backlog gauges.
-- [ ] M6 — Observability: Prometheus metrics in all services, structured JSON logs w/
+- [x] M6 — Observability: Prometheus metrics in all services, structured logs w/
       correlation+job IDs, Grafana dashboard, docker-compose wiring for
-      prometheus/grafana/localstack.
+      prometheus/grafana (localstack already wired in M4).
 - [ ] M7 — Benchmarks: load generator, lateness percentile measurement, DB/queue
       metrics capture, BENCHMARKS.md with real results.
 - [ ] M8 — Docs: ARCHITECTURE.md, DESIGN_DECISIONS.md, FAILURE_MODES.md, README.md,
@@ -163,15 +163,49 @@ observe another component's writes to that same row.
   ("worker lease expired...") and attempt 2 as `SUCCEEDED` on a live worker.
 - 97 tests passing (9 new, including the lease-scaling regression), ruff clean.
 
+**M6 complete.** Added:
+- `app/observability/metrics_server.py`: `start_http_server` wired into every
+  background service's `__main__.py` (dispatcher/outbox-publisher/worker/
+  reconciliation), each on METRICS_PORT (9100); the API already served its own via
+  a FastAPI route.
+- `app/observability/db_metrics.py`: per-service DB pool gauges (size, checked-out),
+  sampled once per loop iteration — cheap, synchronous reads of pool internals.
+  `db_query_errors_total` incremented in each service's existing top-level exception
+  handler. `queue_backlog` gauge sampled periodically for both the main queue and
+  the DLQ.
+- Correlation IDs: `app/api/main.py`'s `ObservabilityMiddleware` binds a request_id
+  (from `X-Request-ID` if the client sent one, else a fresh UUID) into structlog's
+  contextvars for the duration of each request, and echoes it back as a response
+  header. The worker does the same with job_id/attempt_number around each message's
+  processing. Both verified directly: confirmed the header round-trips, and confirmed
+  contextvars actually appear in rendered log output.
+- `infra/prometheus/prometheus.yml` + `infra/grafana/provisioning/` (datasource +
+  dashboard auto-provisioning) + `dashboards/chronos-overview.json` (12 panels:
+  job outcomes, dispatch lag percentiles, outbox backlog/age, queue backlog,
+  worker active tasks, reconciliation recoveries, task execution duration
+  percentiles, HTTP rate/latency, DB pool usage, DB query errors).
+- docker-compose: added `prometheus` + `grafana` services.
+- **Verified live**: all 5 scrape targets (api, dispatcher, outbox-publisher,
+  worker, reconciliation) came up `health: up` in Prometheus; generated real job
+  traffic and confirmed `chronos_jobs_succeeded_total`/`chronos_jobs_dead_lettered_
+  total` flowed through to Prometheus queries; confirmed the Grafana dashboard
+  auto-provisioned (`GET /api/search` lists it) without manual import.
+- Caught and fixed a cosmetic-but-confusing issue during live verification: giving
+  Prometheus scrape targets a `service` label collided with our own app-level
+  `service` label on db_pool_size/queue_backlog/db_query_errors_total, so Prometheus
+  silently renamed ours to `exported_service`. Removed the redundant target labels —
+  `job` already identifies the target.
+- 97 tests passing (no new tests this milestone — this was infra/wiring, already
+  covered by M1-M5's test suite plus live verification), ruff clean.
+
 ## Current work
 
-Starting M6: observability. Metrics are defined and recorded throughout (dispatcher,
-outbox publisher, worker, reconciliation) but only the API process currently exposes
-them over HTTP — dispatcher/publisher/worker/reconciliation need their own small
-`/metrics` server (prometheus_client's `start_http_server` on METRICS_PORT) so
-Prometheus can actually scrape them. Then: Prometheus config, a Grafana dashboard,
-and structured JSON logs with correlation IDs (job_id is already in most log lines;
-need a request/trace-level correlation ID threaded through the API).
+Starting M7: performance benchmarks. Need a load generator (near-future + long-
+future job mix, burst scenarios, varying payload sizes), and scripts measuring
+ingestion/dispatch/queue/completion throughput separately, plus schedule-to-start
+lateness percentiles (p50/p95/p99/max, early starts reported separately). Then
+BENCHMARKS.md with real measured numbers only — no claims about the 10k/s or 99%-
+within-2s targets until actually measured on this machine.
 
 ## Blockers
 
