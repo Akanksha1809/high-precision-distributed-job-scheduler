@@ -1,0 +1,63 @@
+x-app-build: &app-build
+  context: .
+  target: dev
+
+x-app-env: &app-env
+  APP_ENV: dev
+  LOG_LEVEL: INFO
+  LOG_FORMAT: console
+  DATABASE_URL: postgresql+asyncpg://chronos:chronos@postgres:5432/chronos
+  QUEUE_BACKEND: memory
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chronos
+      POSTGRES_PASSWORD: chronos
+      POSTGRES_DB: chronos
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chronos -d chronos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    command: >
+      postgres -c max_connections=200
+
+  migrate:
+    build: *app-build
+    environment:
+      <<: *app-env
+    volumes:
+      - .:/srv
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+
+  api:
+    build: *app-build
+    environment:
+      <<: *app-env
+    volumes:
+      - .:/srv
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-data:
