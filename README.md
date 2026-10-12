@@ -1,5 +1,7 @@
 # Chronos — High-Throughput Distributed Job Scheduler
 
+[![CI](https://github.com/Akanksha1809/high-precision-distributed-job-scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/Akanksha1809/high-precision-distributed-job-scheduler/actions/workflows/ci.yml)
+
 A distributed job scheduling system built to demonstrate real backend engineering:
 durable scheduling backed by Postgres, a transactional outbox for safe delivery to
 SQS, horizontally-scalable dispatch/publish/execute/reconcile stages, retries with
@@ -127,6 +129,10 @@ integration (dispatcher concurrency via a real `asyncio.gather` race, outbox
 crash-recovery, worker claiming/staleness checks, reconciliation sweeps — all
 against a real Postgres database), and one end-to-end test driving the full
 pipeline (API → dispatcher → outbox → worker) in a single test.
+
+CI (`.github/workflows/ci.yml`) runs `ruff check` and this exact pytest command —
+against a real Postgres service container, not mocked — on every push and PR to
+`main`.
 
 ```bash
 docker-compose run --rm api ruff check .   # lint

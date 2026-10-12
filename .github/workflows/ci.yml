@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel a superseded run on the same branch/PR rather than letting it finish.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - run: ruff check .
+
+  test:
+    name: Test suite (pytest, real Postgres)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Builds the same images docker-compose.yml defines locally — this runs the
+      # exact test command documented in README.md, not a reimplemented CI-only
+      # harness, so a passing run here means the documented command actually works.
+      # api and migrate each get their own image tag even though they share the
+      # same Dockerfile target, so both need an explicit build.
+      - name: Build the api and migrate images
+        run: docker compose build api migrate
+
+      - name: Start Postgres
+        run: docker compose up -d postgres
+
+      - name: Wait for Postgres to be ready
+        run: |
+          timeout 60 bash -c \
+            'until docker compose exec -T postgres pg_isready -U chronos -d chronos; do sleep 2; done'
+
+      - name: Migrate the main database
+        run: docker compose run --rm migrate
+
+      - name: Create the test database
+        run: docker compose exec -T postgres psql -U chronos -d postgres -c "CREATE DATABASE chronos_test;"
+
+      - name: Migrate the test database
+        run: >
+          docker compose run --rm
+          -e DATABASE_URL=postgresql+asyncpg://chronos:chronos@postgres:5432/chronos_test
+          migrate
+
+      - name: Run the test suite
+        run: >
+          docker compose run --rm
+          -e TEST_DATABASE_URL=postgresql+asyncpg://chronos:chronos@postgres:5432/chronos_test
+          api pytest -v
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
