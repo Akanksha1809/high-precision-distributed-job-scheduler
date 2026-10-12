@@ -9,7 +9,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.api.routes import jobs, system
 from app.config.settings import get_settings
-from app.db.session import dispose_engine
+from app.db.session import dispose_engine, get_engine
+from app.observability.db_metrics import sample_pool_metrics
 from app.observability.logging import configure_logging, get_logger
 from app.observability.metrics import http_request_duration_seconds, http_requests_total
 
@@ -76,6 +77,10 @@ class ObservabilityMiddleware:
             http_request_duration_seconds.labels(
                 method=scope["method"], path=path_template
             ).observe(duration)
+            # Cheap, synchronous read of pool counters — no reason to defer this to a
+            # periodic background task when every request already pays for a
+            # middleware pass anyway.
+            sample_pool_metrics(get_engine(), service="api")
             structlog.contextvars.clear_contextvars()
 
 

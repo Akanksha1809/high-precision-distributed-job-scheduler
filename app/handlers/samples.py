@@ -30,6 +30,15 @@ async def process_data(payload: dict[str, Any]) -> dict[str, Any]:
     return {"count": len(items), "sum": total}
 
 
+async def benchmark_task(payload: dict[str, Any]) -> dict[str, Any]:
+    """Sleeps for a caller-specified duration. Used only by the load-testing suite
+    to produce a controlled, realistic distribution of execution durations instead
+    of every benchmark job taking the same fixed time."""
+    duration_ms = float(payload.get("duration_ms", 10))
+    await asyncio.sleep(duration_ms / 1000)
+    return {"slept_ms": duration_ms}
+
+
 async def always_fail(payload: dict[str, Any]) -> dict[str, Any]:
     """Intentionally fails every attempt — used in tests/demos to exercise retry
     backoff and dead-letter routing end to end."""

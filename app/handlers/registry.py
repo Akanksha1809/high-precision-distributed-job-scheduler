@@ -1,10 +1,11 @@
 from app.handlers.base import HandlerFn
-from app.handlers.samples import always_fail, process_data, simulate_notification
+from app.handlers.samples import always_fail, benchmark_task, process_data, simulate_notification
 
 HANDLER_REGISTRY: dict[str, HandlerFn] = {
     "demo.notify": simulate_notification,
     "demo.process_data": process_data,
     "demo.always_fail": always_fail,
+    "bench.task": benchmark_task,
 }
 
 

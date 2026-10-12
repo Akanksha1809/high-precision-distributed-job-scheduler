@@ -19,7 +19,7 @@
 - [x] M6 — Observability: Prometheus metrics in all services, structured logs w/
       correlation+job IDs, Grafana dashboard, docker-compose wiring for
       prometheus/grafana (localstack already wired in M4).
-- [ ] M7 — Benchmarks: load generator, lateness percentile measurement, DB/queue
+- [x] M7 — Benchmarks: load generator, lateness percentile measurement, DB/queue
       metrics capture, BENCHMARKS.md with real results.
 - [ ] M8 — Docs: ARCHITECTURE.md, DESIGN_DECISIONS.md, FAILURE_MODES.md, README.md,
       diagrams, AWS deployment docs (infra/aws), troubleshooting guide.
@@ -198,14 +198,48 @@ observe another component's writes to that same row.
 - 97 tests passing (no new tests this milestone — this was infra/wiring, already
   covered by M1-M5's test suite plus live verification), ruff clean.
 
+**M7 complete.** Added:
+- `benchmarks/generate_load.py`: async load generator against the live API —
+  configurable rate, burst size, concurrency, near-future/long-future scheduling
+  mix, lognormal execution-duration distribution (via a new `bench.task` handler),
+  configurable payload size. Writes a machine-readable summary + job-id sidecar.
+- `benchmarks/measure_pipeline.py`: post-run analysis straight from Postgres —
+  dispatch/queue-publish/completion throughput, lateness percentiles (late vs early
+  reported separately), retry/failure rates. Scoped to exactly the job IDs the load
+  generator created, not the whole table.
+- `benchmarks/monitor_resources.sh` + `summarize_resources.py`: `docker stats`
+  sampling and per-container CPU/memory summary.
+- `benchmarks/run_benchmark.sh`: orchestrates a full run end to end.
+- **Added API-side DB pool metrics** (`sample_pool_metrics` call in
+  `ObservabilityMiddleware`) — M6 wired this into every background service but
+  missed the API itself, which turned out to matter: it's what confirmed the pool
+  saturation finding below.
+- **Ran three real benchmark scenarios and documented actual results in
+  [BENCHMARKS.md](BENCHMARKS.md)**, not fabricated ones:
+  - Light load (10/s): 98.68% of jobs started within 2s of schedule — the SLA
+    target holds under light load.
+  - Sustained 150/s (two independent runs): achieved only 84–98/s actual ingestion;
+    API latency grew from ~10ms to hundreds of ms; lateness SLA compliance dropped
+    to 11–18%. Confirmed via Prometheus that the API's DB connection pool hit its
+    ceiling (20/20) at peak.
+  - Overload (500/s + 2000 burst): ingestion converged to ~79/s regardless of
+    requested rate — a hard ceiling, not a soft slowdown. **0% failure rate, 0%
+    retry rate, 0 early starts, no server errors at any load level** — the system
+    got slow under load, never wrong.
+  - Identified three contributing bottleneck factors (DB pool saturation, single
+    uvicorn process, 4 vCPUs shared across 9 containers) and documented concrete,
+    architecturally-consistent next steps (the transactional outbox and SKIP LOCKED
+    claiming were already designed for horizontal scale — this benchmark just never
+    exercised more than one instance of anything).
+- 97 tests passing (no new automated tests — this milestone is scripts +
+  measurement, verified by actually running it three times), ruff clean.
+
 ## Current work
 
-Starting M7: performance benchmarks. Need a load generator (near-future + long-
-future job mix, burst scenarios, varying payload sizes), and scripts measuring
-ingestion/dispatch/queue/completion throughput separately, plus schedule-to-start
-lateness percentiles (p50/p95/p99/max, early starts reported separately). Then
-BENCHMARKS.md with real measured numbers only — no claims about the 10k/s or 99%-
-within-2s targets until actually measured on this machine.
+Starting M8: deployment docs. AWS architecture (SQS+DLQ, RDS, ECS/EC2, CloudWatch,
+IAM, Secrets Manager), deployment instructions, cost-conscious demo mode. **No
+actual AWS deployment or spend without explicit user approval** — this stays
+documentation-only unless asked otherwise.
 
 ## Blockers
 
