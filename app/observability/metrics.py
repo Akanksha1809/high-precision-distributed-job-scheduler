@@ -4,7 +4,7 @@ Label cardinality rule: never label a metric with a job_id, idempotency_key, or 
 other unbounded value. task_type and status are safe because the handler registry
 and the state machine both bound their cardinality to a small fixed set.
 """
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 http_requests_total = Counter(
     "chronos_http_requests_total",
@@ -72,4 +72,47 @@ outbox_publish_failed_total = Counter(
 outbox_publish_exhausted_total = Counter(
     "chronos_outbox_publish_exhausted_total",
     "Outbox rows that exhausted outbox_max_publish_attempts and are now stuck FAILED",
+)
+
+# --- Worker ---
+jobs_succeeded_total = Counter(
+    "chronos_jobs_succeeded_total", "Job attempts that completed successfully", labelnames=("task_type",)
+)
+jobs_failed_permanent_total = Counter(
+    "chronos_jobs_failed_permanent_total",
+    "Job attempts that failed permanently (non-retryable)",
+    labelnames=("task_type",),
+)
+jobs_retried_total = Counter(
+    "chronos_jobs_retried_total",
+    "Job attempts that failed but were scheduled for retry",
+    labelnames=("task_type",),
+)
+jobs_dead_lettered_total = Counter(
+    "chronos_jobs_dead_lettered_total",
+    "Jobs that exhausted their retry budget and were routed to the DLQ",
+    labelnames=("task_type",),
+)
+jobs_timed_out_total = Counter(
+    "chronos_jobs_timed_out_total",
+    "Job attempts that exceeded their timeout_seconds",
+    labelnames=("task_type",),
+)
+stale_messages_discarded_total = Counter(
+    "chronos_stale_messages_discarded_total",
+    "Queue messages discarded without execution (cancelled job, stale attempt, already-terminal job)",
+    labelnames=("reason",),
+)
+messages_deferred_total = Counter(
+    "chronos_messages_deferred_total",
+    "Messages that arrived before their job's scheduled_at and were deferred via change_visibility",
+)
+worker_active_tasks = Gauge(
+    "chronos_worker_active_tasks", "Number of job executions currently in flight on this worker"
+)
+task_execution_duration_seconds = Histogram(
+    "chronos_task_execution_duration_seconds",
+    "Wall-clock time spent inside a handler (excludes DB bookkeeping)",
+    labelnames=("task_type",),
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
 )

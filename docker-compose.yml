@@ -7,7 +7,17 @@ x-app-env: &app-env
   LOG_LEVEL: INFO
   LOG_FORMAT: console
   DATABASE_URL: postgresql+asyncpg://chronos:chronos@postgres:5432/chronos
-  QUEUE_BACKEND: memory
+
+# Queue backend shared by dispatcher/outbox-publisher/worker. LocalStack accepts any
+# non-empty string as credentials — these are not real AWS secrets.
+x-queue-env: &queue-env
+  QUEUE_BACKEND: sqs
+  AWS_REGION: us-east-1
+  AWS_ENDPOINT_URL: http://localstack:4566
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  SQS_QUEUE_URL: http://localstack:4566/000000000000/chronos-jobs-main
+  SQS_DLQ_URL: http://localstack:4566/000000000000/chronos-jobs-dlq
 
 services:
   postgres:
@@ -28,6 +38,21 @@ services:
     command: >
       postgres -c max_connections=200
 
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: sqs
+      DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack-data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   migrate:
     build: *app-build
     environment:
@@ -39,10 +64,22 @@ services:
         condition: service_healthy
     command: ["alembic", "upgrade", "head"]
 
+  init-queues:
+    build: *app-build
+    environment:
+      <<: [*app-env, *queue-env]
+    volumes:
+      - .:/srv
+    depends_on:
+      localstack:
+        condition: service_healthy
+    command: ["python", "-m", "scripts.init_queues"]
+
   api:
     build: *app-build
     environment:
       <<: *app-env
+      QUEUE_BACKEND: memory  # the API never touches the queue; no need for SQS/LocalStack here
     volumes:
       - .:/srv
     ports:
@@ -76,7 +113,7 @@ services:
   outbox-publisher:
     build: *app-build
     environment:
-      <<: *app-env
+      <<: [*app-env, *queue-env]
     volumes:
       - .:/srv
     depends_on:
@@ -84,7 +121,26 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+      init-queues:
+        condition: service_completed_successfully
     command: ["python", "-m", "app.publisher"]
+
+  worker:
+    build: *app-build
+    environment:
+      <<: [*app-env, *queue-env]
+      WORKER_ID: worker-1
+    volumes:
+      - .:/srv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      init-queues:
+        condition: service_completed_successfully
+    command: ["python", "-m", "app.workers"]
 
 volumes:
   postgres-data:
+  localstack-data:

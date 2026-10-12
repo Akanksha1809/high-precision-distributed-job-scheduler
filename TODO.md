@@ -9,11 +9,14 @@
 - [x] M3 — Dispatcher + transactional outbox + queue abstraction + in-memory queue impl
       (ended up building the real Queue interface now rather than stubbing it — see
       notes below). SQS/LocalStack backend deferred to M4 as planned.
-- [ ] M4 — SQS/LocalStack queue backend. Worker service consumes + executes registered
-      handlers, re-validates state before running, defers early-arrived messages via
-      change_visibility instead of busy-waiting.
-- [ ] M5 — Retries w/ exponential backoff+jitter, DLQ routing, reconciliation service,
-      worker leases/heartbeats, crash recovery tests, duplicate-delivery tests.
+- [x] M4 — SQS/LocalStack queue backend + worker service (consume, defer early
+      messages, validate authoritative state, execute handlers, finalize outcomes,
+      retry w/ backoff, dead-letter routing). Retries/backoff/DLQ ended up landing in
+      this milestone rather than M5 since the worker couldn't be tested meaningfully
+      without them — reconciliation and leases/heartbeats remain for M5.
+- [ ] M5 — Reconciliation service (recover stuck DISPATCH_PENDING/RUNNING jobs via
+      lease_expires_at), worker heartbeats, crash-recovery tests, cancellation/
+      reschedule-vs-stale-message interaction tests.
 - [ ] M6 — Observability: Prometheus metrics in all services, structured JSON logs w/
       correlation+job IDs, Grafana dashboard, docker-compose wiring for
       prometheus/grafana/localstack.
@@ -87,16 +90,56 @@ the exact time). The precision guarantee (99% within 2s) has to come from the
 execution (via change_visibility) rather than running the handler immediately. This
 is the next thing to build.
 
+**M4 complete.** Added:
+- `app/queue/sqs.py`: SQS adapter (boto3, sync calls offloaded via `asyncio.to_thread`)
+  implementing the same Queue interface as InMemoryQueue — works against LocalStack
+  locally and real AWS in production, selected purely by AWS_ENDPOINT_URL. Credentials
+  always via boto3's standard provider chain, never hardcoded.
+- `app/workers/claim.py`: atomic QUEUED -> RUNNING claim with the staleness checks
+  that make at-least-once delivery safe (cancelled job, stale attempt_count after a
+  reschedule, already-RUNNING or already-terminal duplicate delivery).
+- `app/workers/executor.py`: early-arrival deferral via `change_visibility` (no
+  busy-waiting — a message that arrives before its job's scheduled_at just gets
+  hidden until close to due time), handler execution with a per-job timeout, and
+  routing to finalize_success/finalize_permanent_failure/finalize_retryable_failure.
+- `app/workers/outcomes.py`: success/permanent-failure/retry-or-dead-letter DB
+  transitions. Retry path genuinely commits RUNNING -> RETRY_PENDING before bumping
+  to SCHEDULED with the next backoff time, so RETRY_PENDING is actually observable,
+  not just a name in an enum. Dead-letter path publishes a real message to the DLQ.
+- `app/workers/retry.py`: full-jitter exponential backoff (AWS's recommended
+  strategy — spreads retries instead of letting them re-collide).
+- docker-compose: added `localstack` + `init-queues` (bootstraps the main+DLQ SQS
+  queues) + `worker` services. Switched dispatcher/outbox-publisher/worker to
+  QUEUE_BACKEND=sqs against LocalStack; API stays on the in-memory backend since it
+  never touches the queue.
+- **Verified live, across real separate containers talking over real SQS
+  (LocalStack), not mocked**: created a job via curl, watched it flow
+  SCHEDULED -> DISPATCH_PENDING -> QUEUED -> RUNNING -> SUCCEEDED across the API,
+  dispatcher, outbox-publisher, and worker containers in ~1 second. Separately
+  verified a permanently-retrying job reaches DEAD_LETTER and a real message lands
+  in the LocalStack DLQ (`ApproximateNumberOfMessages: 1`, checked via `awslocal`).
+- 89 tests passing (21 new), ruff clean.
+
+Bug caught during this milestone: an identity-map staleness trap in test code (not
+production code) — a test's `db_session` cached the `Job` ORM object it created, and
+re-querying through that *same* session returned the stale cached object instead of
+reflecting an update committed by a different session (the worker's own
+`session_factory()`). Fixed by using `await session.refresh(job)` instead of
+re-running `select()` on a session that already has the object loaded. Worth
+remembering for any future test that creates state in one session and expects to
+observe another component's writes to that same row.
+
 ## Current work
 
-Starting M4: SQS/LocalStack queue backend, then the worker service (consume, defer
-early messages, validate authoritative state, execute registered handlers,
-idempotent completion).
+Starting M5: reconciliation service. The worker already sets `lease_expires_at` on
+RUNNING and the outbox publisher already has a bounded retry budget, but nothing yet
+*sweeps* for: jobs stuck DISPATCH_PENDING with no progress, jobs stuck RUNNING past
+their lease (worker crashed mid-execution), or outbox rows stuck FAILED. That sweep
+is the reconciliation service.
 
 ## Blockers
 
-None yet. Noting for later: LocalStack image pulls may hit the same transient
-registry timeout seen with postgres:16-alpine during M1 — retry if it happens.
+None yet.
 
 ## Notes
 
