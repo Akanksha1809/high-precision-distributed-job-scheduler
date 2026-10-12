@@ -46,7 +46,9 @@ class Settings(BaseSettings):
     worker_id: str = "worker-1"
     worker_concurrency: int = 8
     worker_heartbeat_interval_seconds: int = 10
-    job_lease_duration_seconds: int = 90
+    # Lease = job.timeout_seconds + this buffer (not a fixed duration) — see
+    # app/workers/claim.py for why it must scale with each job's own timeout.
+    job_lease_buffer_seconds: int = 30
     job_default_timeout_seconds: int = 30
 
     # --- Retry policy ---
@@ -58,7 +60,7 @@ class Settings(BaseSettings):
     # --- Reconciliation ---
     reconciliation_interval_seconds: int = 30
     reconciliation_stale_dispatch_seconds: int = 60
-    reconciliation_stale_running_seconds: int = 180
+    reconciliation_batch_size: int = 100
 
     # --- Payload limits ---
     job_payload_max_bytes: int = 256 * 1024  # 256 KiB

@@ -88,3 +88,7 @@ class InMemoryQueue(Queue):
         msg = self._in_flight.get(receipt_handle)
         if msg is not None:
             msg.visible_at = time.monotonic() + visibility_timeout_seconds
+
+    async def approximate_size(self) -> int:
+        self._requeue_expired()
+        return len(self._available) + len(self._in_flight)

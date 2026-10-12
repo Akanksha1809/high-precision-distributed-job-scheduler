@@ -55,3 +55,9 @@ class Queue(ABC):
         """Extend or shorten how long this message stays invisible to other
         consumers after being received. Used to defer a message that arrived early
         without busy-waiting, and to extend the lease for a long-running task."""
+
+    @abstractmethod
+    async def approximate_size(self) -> int:
+        """Best-effort backlog depth, for the queue_backlog/dlq_depth metrics. SQS
+        documents this as approximate (eventually consistent), not exact — callers
+        must not rely on it for correctness, only for observability."""

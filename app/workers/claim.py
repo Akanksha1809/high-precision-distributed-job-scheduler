@@ -27,7 +27,7 @@ async def claim_for_execution(
     job_id,
     message_attempt_number: int,
     worker_id: str,
-    lease_duration_seconds: int,
+    lease_buffer_seconds: int,
 ) -> ClaimResult:
     job = (
         await session.execute(select(Job).where(Job.id == job_id).with_for_update())
@@ -58,7 +58,11 @@ async def claim_for_execution(
     job.status = JobStatus.RUNNING.value
     job.started_at = now
     job.leased_by = worker_id
-    job.lease_expires_at = now + timedelta(seconds=lease_duration_seconds)
+    # The lease must outlast the job's own execution timeout, or reconciliation would
+    # preempt a handler that's still legitimately running (timeout_seconds is
+    # per-job and caller-configurable up to 3600s — a fixed global lease duration
+    # would be wrong for anything longer than that fixed value).
+    job.lease_expires_at = now + timedelta(seconds=job.timeout_seconds + lease_buffer_seconds)
     job.version += 1
 
     session.add(

@@ -77,7 +77,7 @@ async def process_message(
             job_id=job_id,
             message_attempt_number=attempt_number,
             worker_id=worker_id,
-            lease_duration_seconds=settings.job_lease_duration_seconds,
+            lease_buffer_seconds=settings.job_lease_buffer_seconds,
         )
     if claim.job is None:
         await main_queue.delete(msg.receipt_handle)

@@ -14,9 +14,8 @@
       retry w/ backoff, dead-letter routing). Retries/backoff/DLQ ended up landing in
       this milestone rather than M5 since the worker couldn't be tested meaningfully
       without them — reconciliation and leases/heartbeats remain for M5.
-- [ ] M5 — Reconciliation service (recover stuck DISPATCH_PENDING/RUNNING jobs via
-      lease_expires_at), worker heartbeats, crash-recovery tests, cancellation/
-      reschedule-vs-stale-message interaction tests.
+- [x] M5 — Reconciliation service (recover stuck DISPATCH_PENDING/RUNNING jobs via
+      lease_expires_at), real crash-recovery tests, outbox backlog gauges.
 - [ ] M6 — Observability: Prometheus metrics in all services, structured JSON logs w/
       correlation+job IDs, Grafana dashboard, docker-compose wiring for
       prometheus/grafana/localstack.
@@ -129,13 +128,50 @@ re-running `select()` on a session that already has the object loaded. Worth
 remembering for any future test that creates state in one session and expects to
 observe another component's writes to that same row.
 
+**M5 complete.** Added:
+- `app/reconciliation/sweep.py`: two recovery sweeps, both claiming candidates via
+  `FOR UPDATE SKIP LOCKED` so multiple reconciliation replicas never double-recover
+  the same job:
+  - `recover_stale_dispatch_pending`: jobs stuck DISPATCH_PENDING with no live
+    (PENDING/PUBLISHED) outbox row — meaning the outbox publisher exhausted its
+    retry budget — get reset to SCHEDULED for a fresh dispatch/outbox/attempt.
+    Carefully does NOT touch a DISPATCH_PENDING job whose outbox row is still
+    legitimately PENDING (publisher just behind, not stuck).
+  - `recover_abandoned_running`: jobs RUNNING past `lease_expires_at` (worker
+    crashed mid-execution) reuse `finalize_retryable_failure` directly — retry with
+    backoff if budget remains, dead-letter with a real DLQ message otherwise.
+  - `update_outbox_backlog_gauges`: outbox backlog size + oldest-pending age.
+- Queue interface gained `approximate_size()` (both InMemoryQueue and the SQS
+  adapter) for the queue_backlog/dlq_depth metrics.
+- `app/reconciliation/service.py` + `__main__.py`, wired into docker-compose as a
+  fifth long-running service.
+- **Caught and fixed a real correctness bug while building this**: the worker's
+  lease duration was a fixed 90s setting, independent of a job's own
+  `timeout_seconds` (API-configurable up to 3600s). A legitimately long-running job
+  would have been wrongly declared "abandoned" by reconciliation and retried
+  concurrently with the still-running original attempt. Fixed: lease is now
+  `job.timeout_seconds + job_lease_buffer_seconds`, scaling with each job rather
+  than a global constant. Added a regression test
+  (`test_lease_scales_with_the_jobs_own_timeout_not_a_fixed_duration`) proving it.
+- **Verified live, not simulated**: manually inserted a job in RUNNING state with an
+  already-expired lease directly into the live Postgres (standing in for "a worker
+  process that crashed mid-execution", which can't be triggered by just killing a
+  container on a one-shot task) while dispatcher/publisher/worker/reconciliation
+  all ran as real containers over real SQS. Watched the reconciliation container's
+  logs catch it on its next sweep, retry it through the full real pipeline, and land
+  on SUCCEEDED — with the attempts history showing attempt 1 as `FAILED_RETRYABLE`
+  ("worker lease expired...") and attempt 2 as `SUCCEEDED` on a live worker.
+- 97 tests passing (9 new, including the lease-scaling regression), ruff clean.
+
 ## Current work
 
-Starting M5: reconciliation service. The worker already sets `lease_expires_at` on
-RUNNING and the outbox publisher already has a bounded retry budget, but nothing yet
-*sweeps* for: jobs stuck DISPATCH_PENDING with no progress, jobs stuck RUNNING past
-their lease (worker crashed mid-execution), or outbox rows stuck FAILED. That sweep
-is the reconciliation service.
+Starting M6: observability. Metrics are defined and recorded throughout (dispatcher,
+outbox publisher, worker, reconciliation) but only the API process currently exposes
+them over HTTP — dispatcher/publisher/worker/reconciliation need their own small
+`/metrics` server (prometheus_client's `start_http_server` on METRICS_PORT) so
+Prometheus can actually scrape them. Then: Prometheus config, a Grafana dashboard,
+and structured JSON logs with correlation IDs (job_id is already in most log lines;
+need a request/trace-level correlation ID threaded through the API).
 
 ## Blockers
 

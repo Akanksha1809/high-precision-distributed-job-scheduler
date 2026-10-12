@@ -141,6 +141,21 @@ services:
         condition: service_completed_successfully
     command: ["python", "-m", "app.workers"]
 
+  reconciliation:
+    build: *app-build
+    environment:
+      <<: [*app-env, *queue-env]
+    volumes:
+      - .:/srv
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      init-queues:
+        condition: service_completed_successfully
+    command: ["python", "-m", "app.reconciliation"]
+
 volumes:
   postgres-data:
   localstack-data:

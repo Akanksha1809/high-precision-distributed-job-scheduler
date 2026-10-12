@@ -29,6 +29,9 @@ class AlwaysFailQueue(Queue):
     async def change_visibility(self, receipt_handle: str, visibility_timeout_seconds: int) -> None:
         pass
 
+    async def approximate_size(self) -> int:
+        return 0
+
 
 async def _make_scheduled_job(session):
     job = Job(

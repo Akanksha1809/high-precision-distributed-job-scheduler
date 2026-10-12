@@ -116,3 +116,20 @@ task_execution_duration_seconds = Histogram(
     labelnames=("task_type",),
     buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30),
 )
+
+# --- Reconciliation ---
+reconciliation_recovered_total = Counter(
+    "chronos_reconciliation_recovered_total",
+    "Jobs recovered by the reconciliation sweep",
+    labelnames=("reason",),
+)
+outbox_backlog = Gauge(
+    "chronos_outbox_backlog", "Number of outbox rows currently PENDING (awaiting publish)"
+)
+outbox_oldest_pending_age_seconds = Gauge(
+    "chronos_outbox_oldest_pending_age_seconds",
+    "Age of the oldest PENDING outbox row, in seconds (0 if none pending)",
+)
+queue_backlog = Gauge(
+    "chronos_queue_backlog", "Approximate number of messages on a queue", labelnames=("queue",)
+)

@@ -107,3 +107,14 @@ class SQSQueue(Queue):
             ReceiptHandle=receipt_handle,
             VisibilityTimeout=visibility_timeout_seconds,
         )
+
+    async def approximate_size(self) -> int:
+        response = await asyncio.to_thread(
+            self._client.get_queue_attributes,
+            QueueUrl=self._queue_url,
+            AttributeNames=["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible"],
+        )
+        attrs = response.get("Attributes", {})
+        visible = int(attrs.get("ApproximateNumberOfMessages", 0))
+        in_flight = int(attrs.get("ApproximateNumberOfMessagesNotVisible", 0))
+        return visible + in_flight
