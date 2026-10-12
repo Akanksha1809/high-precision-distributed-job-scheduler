@@ -21,9 +21,12 @@
       prometheus/grafana (localstack already wired in M4).
 - [x] M7 — Benchmarks: load generator, lateness percentile measurement, DB/queue
       metrics capture, BENCHMARKS.md with real results.
-- [ ] M8 — Docs: ARCHITECTURE.md, DESIGN_DECISIONS.md, FAILURE_MODES.md, README.md,
-      diagrams, AWS deployment docs (infra/aws), troubleshooting guide.
-- [ ] M9 — Full test suite pass, final polish.
+- [x] M8 — AWS deployment architecture: Terraform (ECS Fargate, RDS, SQS+DLQ,
+      Secrets Manager, CloudWatch, least-privilege IAM) + DEPLOYMENT.md. Documentation
+      and IaC only — nothing applied, no AWS resources created.
+- [x] M9 — Full documentation suite (README, ARCHITECTURE, DESIGN_DECISIONS,
+      FAILURE_MODES, troubleshooting, future improvements) + final full test suite
+      pass + validated every documented command actually works as written.
 
 ## Status
 
@@ -234,16 +237,40 @@ observe another component's writes to that same row.
 - 97 tests passing (no new automated tests — this milestone is scripts +
   measurement, verified by actually running it three times), ruff clean.
 
+**M8 complete.** Added `infra/aws/terraform/` (versions/variables/network/rds/sqs/
+secrets/ecr/iam/ecs/cloudwatch/outputs — ECS Fargate running the same five
+services as docker-compose, same image, different container command per service;
+least-privilege IAM with the API getting zero SQS permissions; SQS-native redrive
+as a backstop behind the app's own DLQ routing; CloudWatch log groups + alarms on
+DLQ depth, dead-letter events, queue backlog, RDS CPU) + `infra/aws/DEPLOYMENT.md`
+(architecture diagram, setup steps, a real cost estimate ~$55-70/mo if left
+running, hardening-for-production notes, teardown instructions). Validated with
+`terraform init -backend=false` + `terraform validate` (caught and fixed one real
+bug: a duplicate `local.services` name collision between `cloudwatch.tf` and
+`ecs.tf`) — **no `plan`/`apply` run, no AWS credentials used, nothing provisioned.**
+
+**M9 complete.** Added README.md, ARCHITECTURE.md (component table + two Mermaid
+diagrams: request flow, job lifecycle state machine), DESIGN_DECISIONS.md (11
+trade-offs explained with the alternative considered and why it lost),
+FAILURE_MODES.md (13 scenarios, each tied to a specific test or a specific live
+verification already performed earlier), docs/TROUBLESHOOTING.md,
+docs/FUTURE_IMPROVEMENTS.md. Then validated the project end-to-end exactly as a
+new reader would: fresh `docker-compose down -v` + `up -d` (all 9 containers
+healthy), every curl example in the README run against the live API and confirmed
+correct, `/docs` and `/handlers` endpoints checked, Grafana dashboard confirmed
+still provisioned, full test suite re-run with the exact documented command
+(97/97 passing), final teardown with volumes removed for a clean slate.
+
 ## Current work
 
-Starting M8: deployment docs. AWS architecture (SQS+DLQ, RDS, ECS/EC2, CloudWatch,
-IAM, Secrets Manager), deployment instructions, cost-conscious demo mode. **No
-actual AWS deployment or spend without explicit user approval** — this stays
-documentation-only unless asked otherwise.
+All 9 milestones complete. Project is in a demoable, interview-ready state:
+working distributed scheduler, 97 passing tests, real (not fabricated) benchmark
+results with honest bottleneck analysis, full observability stack, and
+AWS deployment IaC that's been syntax-validated but deliberately not applied.
 
 ## Blockers
 
-None yet.
+None.
 
 ## Notes
 

@@ -17,3 +17,8 @@ benchmarks/results/*/
 grafana-data/
 postgres-data/
 localstack-data/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform.tfstate.lock.info
